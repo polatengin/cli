@@ -50,12 +50,11 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 		Short: "Edit a pull request",
 		Example: heredoc.Doc(`
 			$ gh pr edit 23 --title "I found a bug" --body "Nothing works"
-			$ gh pr edit 23 --label "bug,help wanted"
-			$ gh pr edit 23 --label bug --label "help wanted"
-			$ gh pr edit 23 --reviewer monalisa,hubot  --reviewer myorg/team-name
-			$ gh pr edit 23 --assignee monalisa,hubot
-			$ gh pr edit 23 --assignee @me
-			$ gh pr edit 23 --project "Roadmap"
+			$ gh pr edit 23 --add-label "bug,help wanted" --remove-label "core"
+			$ gh pr edit 23 --add-reviewer monalisa,hubot  --remove-reviewer myorg/team-name
+			$ gh pr edit 23 --add-assignee @me --remove-assignee monalisa,hubot
+			$ gh pr edit 23 --add-project "Roadmap" --remove-project v1,v2
+			$ gh pr edit 23 --milestone "Version 1"
 		`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -66,25 +65,25 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 
 			flags := cmd.Flags()
 			if flags.Changed("title") {
-				opts.Editable.TitleEdited = true
+				opts.Editable.Title.Edited = true
 			}
 			if flags.Changed("body") {
-				opts.Editable.BodyEdited = true
+				opts.Editable.Body.Edited = true
 			}
-			if flags.Changed("reviewer") {
-				opts.Editable.ReviewersEdited = true
+			if flags.Changed("add-reviewer") || flags.Changed("remove-reviewer") {
+				opts.Editable.Reviewers.Edited = true
 			}
-			if flags.Changed("assignee") {
-				opts.Editable.AssigneesEdited = true
+			if flags.Changed("add-assignee") || flags.Changed("remove-assignee") {
+				opts.Editable.Assignees.Edited = true
 			}
-			if flags.Changed("label") {
-				opts.Editable.LabelsEdited = true
+			if flags.Changed("add-label") || flags.Changed("remove-label") {
+				opts.Editable.Labels.Edited = true
 			}
-			if flags.Changed("project") {
-				opts.Editable.ProjectsEdited = true
+			if flags.Changed("add-project") || flags.Changed("remove-project") {
+				opts.Editable.Projects.Edited = true
 			}
 			if flags.Changed("milestone") {
-				opts.Editable.MilestoneEdited = true
+				opts.Editable.Milestone.Edited = true
 			}
 
 			if !opts.Editable.Dirty() {
@@ -103,13 +102,17 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Editable.Title, "title", "t", "", "Revise the pr title.")
-	cmd.Flags().StringVarP(&opts.Editable.Body, "body", "b", "", "Revise the pr body.")
-	cmd.Flags().StringSliceVarP(&opts.Editable.Reviewers, "reviewer", "r", nil, "Request reviews from people or teams by their `handle`")
-	cmd.Flags().StringSliceVarP(&opts.Editable.Assignees, "assignee", "a", nil, "Set assigned people by their `login`. Use \"@me\" to self-assign.")
-	cmd.Flags().StringSliceVarP(&opts.Editable.Labels, "label", "l", nil, "Set the pr labels by `name`")
-	cmd.Flags().StringSliceVarP(&opts.Editable.Projects, "project", "p", nil, "Set the projects the pr belongs to by `name`")
-	cmd.Flags().StringVarP(&opts.Editable.Milestone, "milestone", "m", "", "Set the milestone the pr belongs to by `name`")
+	cmd.Flags().StringVarP(&opts.Editable.Title.Value, "title", "t", "", "Edit the title.")
+	cmd.Flags().StringVarP(&opts.Editable.Body.Value, "body", "b", "", "Edit the body.")
+	cmd.Flags().StringSliceVar(&opts.Editable.Reviewers.Add, "add-reviewer", nil, "Add reviewers by their `login`.")
+	cmd.Flags().StringSliceVar(&opts.Editable.Reviewers.Remove, "remove-reviewer", nil, "Remove reviewers by their `login`.")
+	cmd.Flags().StringSliceVar(&opts.Editable.Assignees.Add, "add-assignee", nil, "Add assigned users by their `login`. Use \"@me\" to assign yourself.")
+	cmd.Flags().StringSliceVar(&opts.Editable.Assignees.Remove, "remove-assignee", nil, "Remove assigned users by their `login`. Use \"@me\" to unassign yourself.")
+	cmd.Flags().StringSliceVar(&opts.Editable.Labels.Add, "add-label", nil, "Add labels by `name`")
+	cmd.Flags().StringSliceVar(&opts.Editable.Labels.Remove, "remove-label", nil, "Remove labels by `name`")
+	cmd.Flags().StringSliceVar(&opts.Editable.Projects.Add, "add-project", nil, "Add the pull request to projects by `name`")
+	cmd.Flags().StringSliceVar(&opts.Editable.Projects.Remove, "remove-project", nil, "Remove the pull request from projects by `name`")
+	cmd.Flags().StringVarP(&opts.Editable.Milestone.Value, "milestone", "m", "", "Edit the milestone the pull request belongs to by `name`")
 
 	return cmd
 }
@@ -127,14 +130,14 @@ func editRun(opts *EditOptions) error {
 	}
 
 	editable := opts.Editable
-	editable.ReviewersAllowed = true
-	editable.TitleDefault = pr.Title
-	editable.BodyDefault = pr.Body
-	editable.ReviewersDefault = pr.ReviewRequests
-	editable.AssigneesDefault = pr.Assignees
-	editable.LabelsDefault = pr.Labels
-	editable.ProjectsDefault = pr.ProjectCards
-	editable.MilestoneDefault = pr.Milestone
+	editable.Reviewers.Allowed = true
+	editable.Title.Default = pr.Title
+	editable.Body.Default = pr.Body
+	editable.Reviewers.Default = pr.ReviewRequests.Logins()
+	editable.Assignees.Default = pr.Assignees.Logins()
+	editable.Labels.Default = pr.Labels.Names()
+	editable.Projects.Default = pr.ProjectCards.ProjectNames()
+	editable.Milestone.Default = pr.Milestone.Title
 
 	if opts.Interactive {
 		err = opts.Surveyor.FieldsToEdit(&editable)
@@ -204,7 +207,7 @@ func updatePullRequest(client *api.Client, repo ghrepo.Interface, id string, edi
 }
 
 func updatePullRequestReviews(client *api.Client, repo ghrepo.Interface, id string, editable shared.Editable) error {
-	if !editable.ReviewersEdited {
+	if !editable.Reviewers.Edited {
 		return nil
 	}
 	userIds, teamIds, err := editable.ReviewersParams()

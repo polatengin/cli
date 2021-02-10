@@ -80,32 +80,10 @@ type PullRequest struct {
 			}
 		}
 	}
-	Assignees struct {
-		Nodes []struct {
-			Login string
-		}
-		TotalCount int
-	}
-	Labels struct {
-		Nodes []struct {
-			Name string
-		}
-		TotalCount int
-	}
-	ProjectCards struct {
-		Nodes []struct {
-			Project struct {
-				Name string
-			}
-			Column struct {
-				Name string
-			}
-		}
-		TotalCount int
-	}
-	Milestone struct {
-		Title string
-	}
+	Assignees      Assignees
+	Labels         Labels
+	ProjectCards   ProjectCards
+	Milestone      Milestone
 	Comments       Comments
 	ReactionGroups ReactionGroups
 	Reviews        PullRequestReviews
@@ -121,6 +99,14 @@ type ReviewRequests struct {
 		}
 	}
 	TotalCount int
+}
+
+func (r ReviewRequests) Logins() []string {
+	logins := make([]string, 0, len(r.Nodes))
+	for _, a := range r.Nodes {
+		logins = append(logins, a.RequestedReviewer.Login)
+	}
+	return logins
 }
 
 type NotFoundError struct {
